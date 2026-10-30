@@ -1,6 +1,7 @@
 import Foundation
 import CoreMotion
 import HealthKit
+import WatchKit
 
 /// Zeichnet Device Motion auf: 200 Hz via CMBatchedSensorManager (Series 8+/Ultra, watchOS 10+),
 /// sonst 100 Hz via CMMotionManager. Die Batched-API liefert nur während einer aktiven
@@ -78,7 +79,10 @@ final class SwingRecorder: NSObject, ObservableObject {
         motionManager.stopDeviceMotionUpdates()
         endWorkout()
 
-        let recording = SwingRecording(date: Date(), sampleRateHz: sampleRate, source: source, samples: samples)
+        let device = WKInterfaceDevice.current()
+        let recording = SwingRecording(date: Date(), sampleRateHz: sampleRate, source: source, samples: samples,
+                                       wrist: device.wristLocation == .left ? .left : .right,
+                                       crown: device.crownOrientation == .left ? .left : .right)
         do {
             try WatchSessionManager.shared.send(recording)
             statusText = "\(samples.count) Samples an iPhone übergeben"

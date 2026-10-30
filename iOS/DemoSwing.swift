@@ -1,12 +1,16 @@
 import Foundation
 import simd
 
-/// Synthetischer Schwung mit bekannter Wahrheit: Handgelenk auf einem Kreis (r = 0,7 m)
-/// in einer um 60° geneigten Schwungebene. Dient als Referenztest der Rekonstruktion
+/// Synthetischer Schwung mit bekannter Wahrheit: linkes Handgelenk (Krone zur Hand) auf einem Kreis
+/// (r = 0,7 m) in einer um 60° geneigten Schwungebene. Der Unterarm zeigt immer vom Kreismittelpunkt
+/// zum Handgelenk und rollt zusätzlich um die eigene Achse. Dient als Referenztest der Rekonstruktion
 /// und zum Ausprobieren im Simulator ohne Watch.
 enum DemoSwing {
     static let radius = 0.7
     static let planeTilt = 60.0 * .pi / 180
+    static let targetLine = SIMD3<Double>(1, 0, 0)
+    static let planeUp = SIMD3<Double>(0, cos(planeTilt), sin(planeTilt))
+    static let planeNormal = simd_normalize(simd_cross(targetLine, planeUp))
 
     /// Winkel im Schwungkreis: 0 = Ansprechen, negativ = Rückschwung, positiv = Durchschwung
     static func theta(_ t: Double) -> Double {
@@ -17,28 +21,40 @@ enum DemoSwing {
         return 2.6                                                     // Finish halten
     }
 
+    /// Rollen des Unterarms um die eigene Achse (rad, positiv um +X = Richtung Hand).
+    /// Am linken Arm ist das Pronation: im Rückschwung −69° (Supination), im Finish +74° (Pronation).
+    static func roll(_ t: Double) -> Double { 0.5 * theta(t) }
+
     static func truePosition(_ t: Double) -> SIMD3<Double> {
         let th = theta(t)
-        let u = SIMD3<Double>(1, 0, 0)                                  // Ziellinie
-        let up = SIMD3<Double>(0, cos(planeTilt), sin(planeTilt))       // "oben" in der Ebene
-        return radius * (sin(th) * u + (1 - cos(th)) * up)
+        return radius * (sin(th) * targetLine + (1 - cos(th)) * planeUp)
+    }
+
+    /// Gerät → Referenz. Geräte-X zeigt entlang des Unterarms zur Hand.
+    static func attitude(_ t: Double) -> simd_quatd {
+        let base = simd_quatd(from: SIMD3(1, 0, 0), to: -planeUp)
+        return simd_quatd(angle: theta(t), axis: planeNormal) * base * simd_quatd(angle: roll(t), axis: SIMD3(1, 0, 0))
     }
 
     static func make(rate: Double = 200, duration: Double = 2.6) -> SwingRecording {
         let dt = 1 / rate
         let n = Int(duration * rate)
-        let normal = simd_normalize(simd_cross(SIMD3<Double>(1, 0, 0), SIMD3(0, cos(planeTilt), sin(planeTilt))))
         var samples: [MotionSample] = []
         for i in 0..<n {
             let t = Double(i) * dt
-            // Beschleunigung per zentraler Differenz der wahren Position
-            let a = (truePosition(t + dt) - 2 * truePosition(t) + truePosition(t - dt)) / (dt * dt) / SwingReconstructor.gravity
-            let w = (theta(t + dt) - theta(t - dt)) / (2 * dt) * normal
-            // Attitude = Identität: Gerätesystem = Referenzsystem
-            samples.append(MotionSample(t: t, qx: 0, qy: 0, qz: 0, qw: 1,
+            let q = attitude(t)
+            // Beschleunigung per zentraler Differenz, dann ins Gerätesystem
+            let aRef = (truePosition(t + dt) - 2 * truePosition(t) + truePosition(t - dt)) / (dt * dt)
+            let a = q.inverse.act(aRef) / SwingReconstructor.gravity
+            // Drehrate im Gerätesystem aus der Attitude-Änderung (Kleinwinkelnäherung)
+            var dq = attitude(t - dt).inverse * attitude(t + dt)
+            if dq.real < 0 { dq = simd_quatd(vector: -dq.vector) }
+            let w = dq.imag / dt
+            samples.append(MotionSample(t: t, qx: q.imag.x, qy: q.imag.y, qz: q.imag.z, qw: q.real,
                                         ax: a.x, ay: a.y, az: a.z,
                                         gx: w.x, gy: w.y, gz: w.z))
         }
-        return SwingRecording(date: Date(), sampleRateHz: rate, source: "demo", samples: samples)
+        return SwingRecording(date: Date(), sampleRateHz: rate, source: "demo", samples: samples,
+                              wrist: .left, crown: .right)
     }
 }

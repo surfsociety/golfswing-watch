@@ -15,6 +15,21 @@ Voraussetzungen: Xcode 15+, iOS 17, watchOS 10. 200 Hz über `CMBatchedSensorMan
 
 Watch: **Start** → mindestens 0,5 s ruhig ansprechen → schwingen → **im Finish ~0,5 s stillhalten** → **Stopp & senden**. Die Ruhephasen sind keine Kosmetik: Sie sind die Randbedingung (v = 0), mit der die Integrationsdrift entfernt wird.
 
+## Handgelenk links/rechts
+
+Standard ist **Auto**: Die Watch schickt mit jeder Aufnahme mit, an welchem Handgelenk sie laut watchOS-Einstellungen sitzt und auf welcher Seite die Krone ist. Im Schwung-Detail lässt sich das per Umschalter (Auto / Links / Rechts) überschreiben; die Wahl bleibt gespeichert. Die Seite bestimmt, welche Geräteachse als Unterarmachse gilt und welches Vorzeichen Supination bekommt. Auf die Bahn selbst hat sie keinen Einfluss.
+
+## Drehung des Handgelenks
+
+- **Band statt Linie:** Die Bahn ist ein Band, dessen Fläche immer zur Uhrenoberseite zeigt. Wo sich das Band verdreht, rotiert der Unterarm.
+- **Marker:** Eine ausgerichtete Uhr (Display orange) mit Stab Richtung Ellbogen, gesteuert über den Zeit-Slider.
+- **Kurve:** Unterarmrotation seit dem Ansprechen in Grad. **+ = Supination** (Handfläche dreht nach oben), **− = Pronation**. Gestrichelte Linie = Treffmoment (Spitze der Winkelgeschwindigkeit).
+- **Berechnung:** Integral der Gyro-Drehrate um die Unterarmachse. Bewusst nicht aus der Attitude zerlegt, weil diese Zerlegung bei ~180° Armschwung (Top des Rückschwungs) instabil wird.
+
+**Grenze:** Die Watch sitzt am Unterarm, nicht auf der Hand. Messbar ist deshalb die **Unterarmrotation** (Pronation/Supination) und die Lage des Unterarms. **Beugen/Strecken und Abwinkeln des Handgelenks** (z. B. „gebeugtes Handgelenk im Top“) sieht die Uhr nicht.
+
+**Kalibrier-Check am Gerät (30 Sekunden):** Arm vor dem Körper ausstrecken, Handfläche nach unten, Aufnahme starten, kurz ruhig halten, Handfläche zügig nach oben drehen, ruhig halten, stoppen. Erwartung: Kurve steigt auf etwa +150 bis +180°. Zeigt sie ins Negative, stimmt die Seite (Links/Rechts) oder die Kronen-Annahme nicht.
+
 ## Architektur
 
 | Datei | Aufgabe |
@@ -29,7 +44,7 @@ Watch: **Start** → mindestens 0,5 s ruhig ansprechen → schwingen → **im Fi
 
 ## Was die Zahlen bedeuten (und was nicht)
 
-- **Bahn:** Handgelenk, nicht Schlägerkopf. Relativ zur Ansprechposition. Z/blau = vertikal, X-Richtung ist beliebig (kein Kompass), also *nicht* automatisch die Ziellinie.
+- **Bahn:** Handgelenk (nur das, an dem die Watch sitzt), nicht Schlägerkopf. Relativ zur Ansprechposition. Z/blau = vertikal, X-Richtung ist beliebig (kein Kompass), also *nicht* automatisch die Ziellinie.
 - **Handgelenk-Speed:** aus der integrierten Geschwindigkeit.
 - **Nur Handgelenk:** Die Ansicht zeigt bewusst nur die Bahn und das Tempo des Handgelenks, an dem die Watch sitzt. Der Rekonstruktor berechnet intern weiter eine grobe Schlägerkopf-Schätzung (|ω| × Hebel); sie wird nicht angezeigt.
 
@@ -37,14 +52,18 @@ Watch: **Start** → mindestens 0,5 s ruhig ansprechen → schwingen → **im Fi
 
 `python3 Tools/verify_reconstruction.py` mit dem Demo-Schwung (Kreis r = 0,7 m, 60°-Ebene):
 
-| Szenario | max. Positionsfehler |
-|---|---|
-| 200 Hz, ideal | 0,2 cm |
-| 100 Hz, ideal | 0,8 cm |
-| 200 Hz, Rauschen 0,02 g | 2,7 cm |
-| konstanter Bias 0,03 g | 0,2 cm (Drift-Korrektur entfernt ihn vollständig) |
-| 2° Attitude-Fehler im Abschwung | 5,6 cm |
-| 5° Attitude-Fehler im Abschwung | 13,7 cm |
+Der Demo-Schwung enthält zusätzlich eine bekannte Unterarmrotation (Top +69° Supination, Finish −74° Pronation, linker Arm).
+
+| Szenario | max. Bahnfehler | max. Rotationsfehler |
+|---|---|---|
+| 200 Hz, ideal | 0,2 cm | 0,6° |
+| 100 Hz, ideal | 0,8 cm | 2,5° |
+| 200 Hz, Rauschen 0,02 g | 1,4 cm | 0,6° |
+| 1° Attitude-Fehler im Abschwung | 2,9 cm | 0,6° |
+| 2° Attitude-Fehler im Abschwung | 5,6 cm | 0,6° |
+| 5° Attitude-Fehler im Abschwung | 13,7 cm | 0,6° |
+
+Ein konstanter Beschleunigungs-Bias wird von der Drift-Korrektur vollständig entfernt. Gyro-Bias ist im Modell nicht enthalten; bei typischen Werten unter 1 °/s liegt die Rotationsdrift über 2–3 s Schwungdauer im einstelligen Gradbereich (Schätzung).
 
 Kernaussage: Der dominante Fehler auf echter Hardware ist nicht Rauschen, sondern die **Attitude-Genauigkeit während des Abschwungs**. Das ist das Erste, was am echten Gerät zu prüfen ist.
 

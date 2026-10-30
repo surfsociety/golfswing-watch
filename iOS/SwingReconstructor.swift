@@ -9,6 +9,11 @@ struct SwingPoint {
     var wristSpeed: Double
     /// Grobe Schlägerkopf-Schätzung: |ω| · Hebellänge, in m/s
     var clubSpeedEstimate: Double
+    /// Attitude der Watch im Referenzsystem (Gerät → Referenz)
+    var attitude: simd_quatd
+    /// Unterarmrotation seit dem Ansprechen in Grad. + = Supination (Handfläche dreht nach oben),
+    /// − = Pronation. Integral der Drehrate um die Unterarmachse.
+    var forearmRotationDeg: Double
 }
 
 struct ReconstructedSwing {
@@ -20,6 +25,9 @@ struct ReconstructedSwing {
     /// true, wenn vor und nach dem Schwung eine Ruhephase gefunden wurde.
     /// Nur dann ist die Drift-Korrektur physikalisch begründet.
     var restDetectedAtBothEnds: Bool
+    /// Geräteachse, die zur Hand zeigt (±X), abhängig von Handgelenk und Kronenseite
+    var distalAxis: SIMD3<Double>
+    var wrist: Side
 }
 
 /// Rekonstruiert die Handgelenk-Bahn aus Attitude + userAcceleration.
@@ -35,7 +43,25 @@ struct ReconstructedSwing {
 enum SwingReconstructor {
     static let gravity = 9.80665
 
-    static func reconstruct(_ recording: SwingRecording, clubLeverMeters: Double = 1.5) -> ReconstructedSwing? {
+    /// Die Geräte-X-Achse zeigt Richtung Krone. Zeigt die Krone zur Hand (Apple-Standard),
+    /// ist +X die Unterarmachse Richtung Hand. Links mit Krone rechts bzw. rechts mit Krone links
+    /// heißt jeweils: Krone zur Hand.
+    static func distalAxis(wrist: Side, crown: Side) -> SIMD3<Double> {
+        let crownTowardHand = (wrist == .left) == (crown == .right)
+        return SIMD3(crownTowardHand ? 1 : -1, 0, 0)
+    }
+
+    /// Wählt das wirksame Handgelenk: manuelle Einstellung schlägt Watch-Einstellung.
+    /// Weicht die manuelle Wahl von der Aufnahme ab, wird „Krone zur Hand“ angenommen.
+    static func resolveSides(_ recording: SwingRecording, override: Side?) -> (wrist: Side, crown: Side) {
+        let wrist = override ?? recording.wrist ?? .left
+        let defaultCrown: Side = wrist == .left ? .right : .left
+        let crown = (recording.wrist == wrist ? recording.crown : nil) ?? defaultCrown
+        return (wrist, crown)
+    }
+
+    static func reconstruct(_ recording: SwingRecording, wristOverride: Side? = nil,
+                            clubLeverMeters: Double = 1.5) -> ReconstructedSwing? {
         let s = recording.samples
         guard s.count > 50 else { return nil }
 
@@ -74,18 +100,36 @@ enum SwingReconstructor {
             p[i] = p[i - 1] + 0.5 * (v[i] + v[i - 1]) * dt
         }
 
+        // 4. Unterarmrotation: Drehrate um die Unterarmachse (Körpersystem) integrieren.
+        //    Robuster als eine Swing-Twist-Zerlegung der Attitude, die nahe 180° Armschwung singulär wird.
+        //    Supination ist am rechten Arm eine positive Drehung um die Achse Richtung Hand, am linken negativ.
+        let sides = resolveSides(recording, override: wristOverride)
+        let distal = distalAxis(wrist: sides.wrist, crown: sides.crown)
+        let supinationSign = sides.wrist == .right ? 1.0 : -1.0
+        var roll = [Double](repeating: 0, count: w.count)
+        for i in 1..<w.count {
+            let dt = w[i].t - w[i - 1].t
+            let r0 = simd_dot(SIMD3(w[i - 1].gx, w[i - 1].gy, w[i - 1].gz), distal)
+            let r1 = simd_dot(SIMD3(w[i].gx, w[i].gy, w[i].gz), distal)
+            roll[i] = roll[i - 1] + 0.5 * (r0 + r1) * dt
+        }
+
         let points = w.indices.map { i in
             SwingPoint(t: w[i].t - t0,
                        position: p[i],
                        wristSpeed: simd_length(v[i]),
-                       clubSpeedEstimate: omega[start + i] * clubLeverMeters)
+                       clubSpeedEstimate: omega[start + i] * clubLeverMeters,
+                       attitude: simd_quatd(ix: w[i].qx, iy: w[i].qy, iz: w[i].qz, r: w[i].qw),
+                       forearmRotationDeg: roll[i] * supinationSign * 180 / .pi)
         }
         return ReconstructedSwing(
             points: points,
             peakWristSpeed: points.map(\.wristSpeed).max() ?? 0,
             peakClubSpeedEstimate: omega[peak] * clubLeverMeters,
             peakTime: times[peak] - t0,
-            restDetectedAtBothEnds: restBefore && restAfter)
+            restDetectedAtBothEnds: restBefore && restAfter,
+            distalAxis: distal,
+            wrist: sides.wrist)
     }
 
     /// Läuft vom Peak weg, bis |ω| für `hold` Sekunden unter `threshold` liegt.
