@@ -13,6 +13,10 @@ struct MotionSample: Codable {
     var gx: Double, gy: Double, gz: Double
 }
 
+enum Side: String, Codable, CaseIterable {
+    case left, right
+}
+
 struct SwingRecording: Codable, Identifiable {
     var id: UUID = UUID()
     var date: Date
@@ -20,4 +24,8 @@ struct SwingRecording: Codable, Identifiable {
     /// "batched-200Hz", "motionManager-100Hz" oder "demo"
     var source: String
     var samples: [MotionSample]
+    /// Handgelenk laut Watch-Einstellungen (nil bei älteren Aufnahmen)
+    var wrist: Side? = nil
+    /// Seite der Krone aus Sicht des Trägers laut Watch-Einstellungen
+    var crown: Side? = nil
 }
