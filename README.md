@@ -30,9 +30,23 @@ Standard ist **Auto**: Die Watch schickt mit jeder Aufnahme mit, an welchem Hand
 
 **Kalibrier-Check am Gerät (30 Sekunden):** Arm vor dem Körper ausstrecken, Handfläche nach unten, Aufnahme starten, kurz ruhig halten, Handfläche zügig nach oben drehen, ruhig halten, stoppen. Erwartung: Kurve steigt auf etwa +150 bis +180°. Zeigt sie ins Negative, stimmt die Seite (Links/Rechts) oder die Kronen-Annahme nicht.
 
-## Stilisierter Unterarm und Hand
+## Stilisierter Unterarm und Hand im Griff
 
-Am Zeit-Marker hängen Unterarm, Uhr und Hand. Alles davon folgt den Messdaten: Das Handgelenk kommt aus der Bahn, die Richtung aus der Attitude der Uhr. Der Unterarm ist 27 cm lang (Durchschnittswert, `ArmModel` in `SwingReconstructor.swift`). Die Hand ist ein starrer Block in Verlängerung des Unterarms; Beugen und Strecken des Handgelenks misst die Uhr nicht, daher knickt die Hand nie ab. Ein Daumen macht die Drehung eindeutig lesbar; er sitzt bei Krone zur Hand auf der 12-Uhr-Seite der Uhr [Wahrscheinlich, am Gerät prüfen].
+Am Zeit-Marker hängen Unterarm (27 cm), Uhr und eine Hand im Griff: Handteller, vier Finger um ein angedeutetes Griffstück, Daumen oben auf dem Schaft, gelber Schlagflächen-Marker am Schaftende.
+
+- **Gemessen:** Lage und Drehung des Unterarms (Bahn + Attitude der Uhr).
+- **Angenommen (einstellbar unter „Handhaltung beim Ansprechen“):** Spielhand (Standard Rechtshänder, Uhr links = Führungshand), Griff (schwach/neutral/stark, ±25° Drehung der Hand am Schaft, Schätzwert) und Winkel Unterarm–Schaft beim Ansprechen (Standard 30°, Schätzwert).
+- Die Hand ist in dieser Ansprech-Pose **starr** am Unterarm befestigt. Beugen, Strecken und Abwinkeln des Handgelenks im Schwung misst die Uhr nicht; die Hand knickt deshalb nie ab, auch nicht im Top.
+- Der Griff wird **gewählt, nicht erkannt**. Als Rohwert zeigt die App die **Eindrehung beim Ansprechen**: Drehung des Handrückens gegen die Waagrechte, absolut über die Schwerkraft gemessen (+ = Richtung Himmel). Bei einem Unterarm steiler als 20° gegen die Senkrechte ist der Wert unzuverlässig.
+
+## Griff-Erkennung: Machbarkeit (noch nicht gebaut)
+
+Die Griffstärke ist die Drehung der Hand am Schaft. Die Uhr sieht nur die Eindrehung des Unterarms, und die hängt zusätzlich von der Ansprech-Haltung ab. Ob sich die Griffe trennen lassen, entscheidet daher eine Messung, nicht die Mathematik:
+
+1. Je Griff 10 Ansprech-Positionen aufnehmen, dazwischen jedes Mal loslassen, weggehen, neu greifen. Reihenfolge mischen.
+2. Aufnahmen über das Teilen-Symbol als JSON exportieren.
+3. Auswertung: Mittelwert und Streuung der Eindrehung je Griff. Erkennung lohnt sich nur, wenn benachbarte Griffe mindestens drei Streuungen auseinanderliegen; Ziel ≥ 90 % richtige Zuordnung in einer zweiten, unabhängigen Sitzung (am besten an einem anderen Tag, Armband neu angelegt).
+4. Referenz von außen: je Aufnahme ein Foto von vorn auf die Führungshand (sichtbare Knöchel).
 
 ## Architektur
 

@@ -35,6 +35,13 @@ struct ReconstructedSwing {
     /// Geräteachse, die zur Hand zeigt (±X), abhängig von Handgelenk und Kronenseite
     var distalAxis: SIMD3<Double>
     var wrist: Side
+    /// Eindrehung des Unterarms beim Ansprechen, absolut gegen die Schwerkraft gemessen:
+    /// 0° = Display (Handrücken) zeigt waagrecht, + = Handrücken dreht Richtung Himmel,
+    /// − = Richtung Boden. Rohwert für die Griff-Kalibrierung, keine Griff-Erkennung.
+    var addressRollDeg: Double
+    /// Neigung des Unterarms gegen die Senkrechte beim Ansprechen. Unter ~20° wird
+    /// addressRollDeg unzuverlässig, weil die Bezugsrichtung (oben) fast entlang des Unterarms liegt.
+    var addressForearmTiltDeg: Double
 }
 
 /// Rekonstruiert die Handgelenk-Bahn aus Attitude + userAcceleration.
@@ -127,6 +134,23 @@ enum SwingReconstructor {
             return p[i] - ArmModel.forearmLength * q.act(distal)
         }
 
+        // 6. Ansprech-Haltung: Mittel über die ersten 0,2 s der Ruhephase
+        let nAddress = max(1, w.prefix { $0.t - t0 <= 0.2 }.count)
+        var forearmSum = SIMD3<Double>.zero, dorsalSum = SIMD3<Double>.zero
+        for m in w.prefix(nAddress) {
+            let q = simd_quatd(ix: m.qx, iy: m.qy, iz: m.qz, r: m.qw)
+            forearmSum += q.act(distal)
+            dorsalSum += q.act(SIMD3(0, 0, 1))
+        }
+        let forearm = simd_normalize(forearmSum)
+        let dorsal = simd_normalize(dorsalSum)
+        let up = SIMD3<Double>(0, 0, 1)
+        let upPerp = up - simd_dot(up, forearm) * forearm
+        let dorsalPerp = dorsal - simd_dot(dorsal, forearm) * forearm
+        let rollAngle = acos(min(max(simd_dot(simd_normalize(upPerp), simd_normalize(dorsalPerp)), -1), 1))
+        let addressRollDeg = 90 - rollAngle * 180 / .pi
+        let addressTiltDeg = acos(min(abs(simd_dot(forearm, up)), 1)) * 180 / .pi
+
         let points = w.indices.map { i in
             SwingPoint(t: w[i].t - t0,
                        position: p[i],
@@ -143,7 +167,9 @@ enum SwingReconstructor {
             peakTime: times[peak] - t0,
             restDetectedAtBothEnds: restBefore && restAfter,
             distalAxis: distal,
-            wrist: sides.wrist)
+            wrist: sides.wrist,
+            addressRollDeg: addressRollDeg,
+            addressForearmTiltDeg: addressTiltDeg)
     }
 
     /// Läuft vom Peak weg, bis |ω| für `hold` Sekunden unter `threshold` liegt.

@@ -5,7 +5,16 @@ struct SwingDetailView: View {
     let recording: SwingRecording
     /// "auto" = aus den Watch-Einstellungen der Aufnahme, sonst "left"/"right"
     @AppStorage("wristSetting") private var wristSetting = "auto"
+    @AppStorage("golferRightHanded") private var golferRightHanded = true
+    @AppStorage("grip") private var gripRaw = GripStyle.neutral.rawValue
+    @AppStorage("shaftAngleDeg") private var shaftAngleDeg = 30.0
     @State private var scrub = 1.0
+
+    private var handPose: HandPose {
+        HandPose(golferRightHanded: golferRightHanded,
+                 grip: GripStyle(rawValue: gripRaw) ?? .neutral,
+                 shaftAngleDeg: shaftAngleDeg)
+    }
 
     private var swing: ReconstructedSwing? {
         SwingReconstructor.reconstruct(recording, wristOverride: Side(rawValue: wristSetting))
@@ -15,7 +24,7 @@ struct SwingDetailView: View {
         if let swing {
             let current = swing.points[Int((Double(swing.points.count - 1) * scrub).rounded())]
             VStack(spacing: 0) {
-                SwingSceneView(swing: swing, progress: scrub)
+                SwingSceneView(swing: swing, progress: scrub, handPose: handPose)
                     .ignoresSafeArea(edges: .horizontal)
                 VStack(alignment: .leading, spacing: 8) {
                     if !swing.restDetectedAtBothEnds {
@@ -37,16 +46,52 @@ struct SwingDetailView: View {
                         Text("Rechts").tag(Side.right.rawValue)
                     }
                     .pickerStyle(.segmented)
+                    DisclosureGroup("Handhaltung beim Ansprechen") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Picker("Spielhand", selection: $golferRightHanded) {
+                                Text("Rechtshänder").tag(true)
+                                Text("Linkshänder").tag(false)
+                            }
+                            .pickerStyle(.segmented)
+                            Picker("Griff", selection: $gripRaw) {
+                                ForEach(GripStyle.allCases) { Text($0.label).tag($0.rawValue) }
+                            }
+                            .pickerStyle(.segmented)
+                            Stepper("Winkel Unterarm–Schaft: \(shaftAngleDeg, specifier: "%.0f")°",
+                                    value: $shaftAngleDeg, in: 0...60, step: 5)
+                            Text(String(format: "Uhr an der %@. Eindrehung beim Ansprechen: %+.0f° (Handrücken + nach oben). Unterarm %.0f° gegen die Senkrechte%@.",
+                                        handPose.watchOnLeadHand(wrist: swing.wrist) ? "Führungshand" : "hinteren Hand",
+                                        swing.addressRollDeg, swing.addressForearmTiltDeg,
+                                        swing.addressForearmTiltDeg < 20 ? " – zu steil, Wert unzuverlässig" : ""))
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Text("Griff wird gewählt, nicht erkannt. Die Hand ist starr in der Ansprech-Pose am Unterarm befestigt; Beugen und Strecken des Handgelenks misst die Uhr nicht.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.caption)
                     SpeedLegend(maxSpeed: swing.peakWristSpeed)
                 }
                 .padding()
             }
             .navigationTitle("Schwung")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Rohdaten als JSON teilen, z. B. für die Auswertung der Griff-Kalibrierung
+                if let url = exportURL() {
+                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
+                }
+            }
         } else {
             ContentUnavailableView("Kein Schwung erkannt", systemImage: "figure.golf",
                                    description: Text("Zu wenige Samples oder keine klare Bewegungsspitze."))
         }
+    }
+
+    private func exportURL() -> URL? {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("swing-\(recording.date.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "-")).json")
+        guard let data = try? JSONEncoder().encode(recording), (try? data.write(to: url)) != nil else { return nil }
+        return url
     }
 
     private func stat(_ title: String, _ value: String) -> some View {

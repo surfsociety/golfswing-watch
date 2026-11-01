@@ -5,10 +5,12 @@ import simd
 /// 3D-Darstellung: Achsenkreuz (X rot, Y grün, Z/vertikal blau, je 1 m), Gitter auf Ansprechhöhe,
 /// Bahn als Band, dessen Fläche der Uhrenoberseite folgt (die Verdrehung des Bandes zeigt die
 /// Unterarmrotation), eingefärbt nach Handgelenk-Geschwindigkeit. Am Zeit-Marker hängen ein
-/// stilisierter Unterarm, die ausgerichtete Uhr (Display orange) und eine stilisierte Hand.
+/// stilisierter Unterarm, die ausgerichtete Uhr (Display orange) und eine stilisierte Hand im Griff
+/// (Pose beim Ansprechen, siehe HandModel) mit Schaftstück und Schlagflächen-Marker.
 struct SwingSceneView: UIViewRepresentable {
     let swing: ReconstructedSwing
     let progress: Double
+    let handPose: HandPose
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -18,14 +20,14 @@ struct SwingSceneView: UIViewRepresentable {
         view.autoenablesDefaultLighting = true
         view.backgroundColor = .systemBackground
         view.antialiasingMode = .multisampling4X
-        view.scene = context.coordinator.buildScene(for: swing)
+        view.scene = context.coordinator.buildScene(for: swing, pose: handPose)
         context.coordinator.updateMarker(progress: progress)
         return view
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
-        if context.coordinator.needsRebuild(for: swing) {
-            view.scene = context.coordinator.buildScene(for: swing)
+        if context.coordinator.needsRebuild(for: swing, pose: handPose) {
+            view.scene = context.coordinator.buildScene(for: swing, pose: handPose)
         }
         context.coordinator.updateMarker(progress: progress)
     }
@@ -36,7 +38,7 @@ struct SwingSceneView: UIViewRepresentable {
         private var elbows: [SIMD3<Float>] = []
         private let marker = SCNNode()
         private let forearm = Coordinator.limb(radius: 0.022)
-        private var builtFor: (count: Int, distal: Double) = (0, 0)
+        private var builtFor: (count: Int, distal: Double, wrist: Side, pose: HandPose) = (0, 0, .left, HandPose())
 
         /// Referenzsystem der Watch: Z vertikal. SceneKit: Y oben. (x, y, z) → (x, z, −y),
         /// das ist eine Drehung um −90° um X.
@@ -50,13 +52,14 @@ struct SwingSceneView: UIViewRepresentable {
             SIMD3(Float(p.x), Float(p.z), Float(-p.y))
         }
 
-        func needsRebuild(for swing: ReconstructedSwing) -> Bool {
+        func needsRebuild(for swing: ReconstructedSwing, pose: HandPose) -> Bool {
             builtFor.count != swing.points.count || builtFor.distal != swing.distalAxis.x
+                || builtFor.wrist != swing.wrist || builtFor.pose != pose
         }
 
-        func buildScene(for swing: ReconstructedSwing) -> SCNScene {
+        func buildScene(for swing: ReconstructedSwing, pose: HandPose) -> SCNScene {
             let scene = SCNScene()
-            builtFor = (swing.points.count, swing.distalAxis.x)
+            builtFor = (swing.points.count, swing.distalAxis.x, swing.wrist, pose)
             positions = swing.points.map { toScene($0.position) }
             orientations = swing.points.map { simd_quatf(vector: SIMD4<Float>((sceneFromReference * $0.attitude).vector)) }
             elbows = swing.points.map { toSceneSIMD($0.elbow) }
@@ -68,7 +71,7 @@ struct SwingSceneView: UIViewRepresentable {
             let colors = swing.points.map { SpeedColor.rgba($0.wristSpeed / maxSpeed) }
             scene.rootNode.addChildNode(SCNNode(geometry: ribbon(colors)))
 
-            buildMarker(distalSign: Float(swing.distalAxis.x))
+            buildMarker(HandModel.geometry(pose: pose, wrist: swing.wrist, distalSign: Float(swing.distalAxis.x)))
             scene.rootNode.addChildNode(marker)
             scene.rootNode.addChildNode(forearm)
 
@@ -109,31 +112,50 @@ struct SwingSceneView: UIViewRepresentable {
         }
 
         /// Uhr im Gerätesystem: X Richtung Krone, Y Richtung 12 Uhr, Z aus dem Display.
-        private func buildMarker(distalSign: Float) {
+        private func buildMarker(_ hand: HandGeometry) {
             marker.childNodes.forEach { $0.removeFromParentNode() }
-            let box = SCNBox(width: 0.06, height: 0.07, length: 0.02, chamferRadius: 0.006)
+            let box = SCNBox(width: 0.045, height: 0.05, length: 0.014, chamferRadius: 0.006)
             let face = SCNMaterial(); face.diffuse.contents = UIColor.systemOrange
             let body = SCNMaterial(); body.diffuse.contents = UIColor.darkGray
             // Reihenfolge: vorne (+Z, Display), rechts, hinten, links, oben, unten
             box.materials = [face, body, body, body, body, body]
             marker.addChildNode(SCNNode(geometry: box))
 
-            // Stilisierte Hand: flacher Handteller entlang der Unterarmachse. Die Uhr sitzt auf der
-            // Handrücken-Seite des Handgelenks, die Handfläche zeigt also entgegen dem Display (−Z).
             let skin = SCNMaterial(); skin.diffuse.contents = UIColor.systemGray
-            let palm = SCNBox(width: 0.10, height: 0.085, length: 0.03, chamferRadius: 0.012)
+            let shaft = SCNMaterial(); shaft.diffuse.contents = UIColor.black
+            let faceMark = SCNMaterial(); faceMark.diffuse.contents = UIColor.systemYellow
+
+            let palm = SCNBox(width: CGFloat(hand.palmSize.x), height: CGFloat(hand.palmSize.y),
+                              length: CGFloat(hand.palmSize.z), chamferRadius: 0.012)
             palm.materials = [skin]
-            let hand = SCNNode(geometry: palm)
-            hand.position = SCNVector3(distalSign * 0.075, 0, -0.022)
-            marker.addChildNode(hand)
-            // Daumen, damit die Drehung der Hand eindeutig lesbar ist. Bei Krone zur Hand liegt er
-            // auf der 12-Uhr-Seite, bei umgedrehter Uhr auf der 6-Uhr-Seite.
-            let thumbGeo = SCNCapsule(capRadius: 0.011, height: 0.055)
-            thumbGeo.materials = [skin]
-            let thumb = SCNNode(geometry: thumbGeo)
-            thumb.position = SCNVector3(distalSign * 0.06, distalSign * 0.05, -0.022)
-            thumb.eulerAngles = SCNVector3(0, 0, distalSign * -0.6)
-            marker.addChildNode(thumb)
+            let palmNode = SCNNode(geometry: palm)
+            palmNode.simdPosition = hand.palmCenter
+            palmNode.simdOrientation = simd_quatf(hand.palmBasis)
+            marker.addChildNode(palmNode)
+
+            for seg in hand.segments {
+                let material: SCNMaterial
+                switch seg.kind {
+                case .skin: material = skin
+                case .shaft: material = shaft
+                case .face: material = faceMark
+                }
+                marker.addChildNode(Coordinator.capsule(from: seg.from, to: seg.to, radius: seg.radius, material: material))
+            }
+        }
+
+        private static func capsule(from a: SIMD3<Float>, to b: SIMD3<Float>, radius: Float, material: SCNMaterial) -> SCNNode {
+            var d = b - a
+            let length = simd_length(d)
+            let geo = SCNCapsule(capRadius: CGFloat(radius), height: CGFloat(length + 2 * radius))
+            geo.materials = [material]
+            let node = SCNNode(geometry: geo)
+            node.simdPosition = (a + b) / 2
+            if length > 1e-5 {
+                if d.y < 0 { d = -d } // symmetrisch, 180°-Sonderfall vermeiden
+                node.simdOrientation = simd_quatf(from: SIMD3(0, 1, 0), to: d / length)
+            }
+            return node
         }
 
         /// Band entlang der Bahn. Breitenrichtung = Geräte-Y (um das Handgelenk herum),
