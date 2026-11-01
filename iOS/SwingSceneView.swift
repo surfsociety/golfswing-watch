@@ -4,9 +4,8 @@ import simd
 
 /// 3D-Darstellung: Achsenkreuz (X rot, Y grün, Z/vertikal blau, je 1 m), Gitter auf Ansprechhöhe,
 /// Bahn als Band, dessen Fläche der Uhrenoberseite folgt (die Verdrehung des Bandes zeigt die
-/// Unterarmrotation), eingefärbt nach Handgelenk-Geschwindigkeit. Am Zeit-Marker hängt ein
-/// stilisierter Arm: Schulter (fest, geschätzt), Oberarm, Ellbogen, Unterarm, ausgerichtete Uhr
-/// (Display orange) und Hand.
+/// Unterarmrotation), eingefärbt nach Handgelenk-Geschwindigkeit. Am Zeit-Marker hängen ein
+/// stilisierter Unterarm, die ausgerichtete Uhr (Display orange) und eine stilisierte Hand.
 struct SwingSceneView: UIViewRepresentable {
     let swing: ReconstructedSwing
     let progress: Double
@@ -35,12 +34,8 @@ struct SwingSceneView: UIViewRepresentable {
         private var positions: [SCNVector3] = []
         private var orientations: [simd_quatf] = []
         private var elbows: [SIMD3<Float>] = []
-        private var shoulder = SIMD3<Float>(0, 0, 0)
         private let marker = SCNNode()
-        private let upperArm = Coordinator.limb(radius: 0.022)
-        private let forearm = Coordinator.limb(radius: 0.018)
-        private let shoulderJoint = Coordinator.joint(radius: 0.035)
-        private let elbowJoint = Coordinator.joint(radius: 0.026)
+        private let forearm = Coordinator.limb(radius: 0.022)
         private var builtFor: (count: Int, distal: Double) = (0, 0)
 
         /// Referenzsystem der Watch: Z vertikal. SceneKit: Y oben. (x, y, z) → (x, z, −y),
@@ -65,7 +60,6 @@ struct SwingSceneView: UIViewRepresentable {
             positions = swing.points.map { toScene($0.position) }
             orientations = swing.points.map { simd_quatf(vector: SIMD4<Float>((sceneFromReference * $0.attitude).vector)) }
             elbows = swing.points.map { toSceneSIMD($0.elbow) }
-            shoulder = toSceneSIMD(swing.shoulder)
 
             scene.rootNode.addChildNode(axes())
             scene.rootNode.addChildNode(grid())
@@ -76,10 +70,7 @@ struct SwingSceneView: UIViewRepresentable {
 
             buildMarker(distalSign: Float(swing.distalAxis.x))
             scene.rootNode.addChildNode(marker)
-            for node in [upperArm, forearm, shoulderJoint, elbowJoint] {
-                scene.rootNode.addChildNode(node)
-            }
-            shoulderJoint.simdPosition = shoulder
+            scene.rootNode.addChildNode(forearm)
 
             let camera = SCNNode()
             camera.camera = SCNCamera()
@@ -96,8 +87,6 @@ struct SwingSceneView: UIViewRepresentable {
             marker.position = positions[i]
             marker.simdOrientation = orientations[i]
             let wrist = SIMD3<Float>(positions[i].x, positions[i].y, positions[i].z)
-            elbowJoint.simdPosition = elbows[i]
-            Coordinator.place(upperArm, from: shoulder, to: elbows[i])
             Coordinator.place(forearm, from: elbows[i], to: wrist)
         }
 
@@ -106,12 +95,6 @@ struct SwingSceneView: UIViewRepresentable {
             let cyl = SCNCylinder(radius: radius, height: 1)
             cyl.firstMaterial?.diffuse.contents = UIColor.systemGray2
             return SCNNode(geometry: cyl)
-        }
-
-        private static func joint(radius: CGFloat) -> SCNNode {
-            let sphere = SCNSphere(radius: radius)
-            sphere.firstMaterial?.diffuse.contents = UIColor.systemGray
-            return SCNNode(geometry: sphere)
         }
 
         private static func place(_ node: SCNNode, from a: SIMD3<Float>, to b: SIMD3<Float>) {
@@ -135,12 +118,22 @@ struct SwingSceneView: UIViewRepresentable {
             box.materials = [face, body, body, body, body, body]
             marker.addChildNode(SCNNode(geometry: box))
 
-            // Stilisierte Hand: Kugel jenseits des Handgelenks entlang der Unterarmachse
-            let fist = SCNSphere(radius: 0.035)
-            fist.firstMaterial?.diffuse.contents = UIColor.systemGray
-            let hand = SCNNode(geometry: fist)
-            hand.position = SCNVector3(distalSign * 0.08, 0, -0.02)
+            // Stilisierte Hand: flacher Handteller entlang der Unterarmachse. Die Uhr sitzt auf der
+            // Handrücken-Seite des Handgelenks, die Handfläche zeigt also entgegen dem Display (−Z).
+            let skin = SCNMaterial(); skin.diffuse.contents = UIColor.systemGray
+            let palm = SCNBox(width: 0.10, height: 0.085, length: 0.03, chamferRadius: 0.012)
+            palm.materials = [skin]
+            let hand = SCNNode(geometry: palm)
+            hand.position = SCNVector3(distalSign * 0.075, 0, -0.022)
             marker.addChildNode(hand)
+            // Daumen, damit die Drehung der Hand eindeutig lesbar ist. Bei Krone zur Hand liegt er
+            // auf der 12-Uhr-Seite, bei umgedrehter Uhr auf der 6-Uhr-Seite.
+            let thumbGeo = SCNCapsule(capRadius: 0.011, height: 0.055)
+            thumbGeo.materials = [skin]
+            let thumb = SCNNode(geometry: thumbGeo)
+            thumb.position = SCNVector3(distalSign * 0.06, distalSign * 0.05, -0.022)
+            thumb.eulerAngles = SCNVector3(0, 0, distalSign * -0.6)
+            marker.addChildNode(thumb)
         }
 
         /// Band entlang der Bahn. Breitenrichtung = Geräte-Y (um das Handgelenk herum),

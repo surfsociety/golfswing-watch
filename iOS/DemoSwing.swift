@@ -2,12 +2,12 @@ import Foundation
 import simd
 
 /// Synthetischer Schwung mit bekannter Wahrheit: linkes Handgelenk (Krone zur Hand) auf einem Kreis
-/// (r = Ober- + Unterarm = 0,58 m, Schulter im Mittelpunkt, Arm gestreckt) in einer um 60° geneigten
+/// (r = 0,58 m ≈ gestreckter Arm, Schulter im Mittelpunkt) in einer um 60° geneigten
 /// Schwungebene. Der Unterarm zeigt immer vom Kreismittelpunkt
 /// zum Handgelenk und rollt zusätzlich um die eigene Achse. Dient als Referenztest der Rekonstruktion
 /// und zum Ausprobieren im Simulator ohne Watch.
 enum DemoSwing {
-    static let radius = ArmModel.forearmLength + ArmModel.upperArmLength
+    static let radius = 0.58
     static let planeTilt = 60.0 * .pi / 180
     static let targetLine = SIMD3<Double>(1, 0, 0)
     static let planeUp = SIMD3<Double>(0, cos(planeTilt), sin(planeTilt))

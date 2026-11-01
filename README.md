@@ -30,14 +30,9 @@ Standard ist **Auto**: Die Watch schickt mit jeder Aufnahme mit, an welchem Hand
 
 **Kalibrier-Check am Gerät (30 Sekunden):** Arm vor dem Körper ausstrecken, Handfläche nach unten, Aufnahme starten, kurz ruhig halten, Handfläche zügig nach oben drehen, ruhig halten, stoppen. Erwartung: Kurve steigt auf etwa +150 bis +180°. Zeigt sie ins Negative, stimmt die Seite (Links/Rechts) oder die Kronen-Annahme nicht.
 
-## Stilisierter Arm
+## Stilisierter Unterarm und Hand
 
-Am Zeit-Marker hängt ein Arm aus Schulter, Oberarm, Ellbogen, Unterarm, Uhr und Hand.
-
-- **Unterarm: gemessen.** Handgelenk aus der Bahn, Richtung aus der Attitude der Uhr. Ellbogen = Handgelenk − 27 cm entlang der Unterarmachse.
-- **Schulter: geschätzt.** Beim Ansprechen in Verlängerung des gestreckten Unterarms (+31 cm), danach **fest im Raum**. Die echte Führungsschulter wandert im Schwung durch die Körperdrehung; das bildet das Modell nicht ab.
-- **Oberarm:** Verbindung Schulter–Ellbogen, Länge daher nicht erzwungen. Die App zeigt die Spanne an. Weicht sie stark von 31 cm ab, ist das ein Hinweis auf Schulterbewegung oder Drift, kein Messwert der Armlänge.
-- Längen sind Durchschnittswerte (`ArmModel` in `SwingReconstructor.swift`), keine Messung.
+Am Zeit-Marker hängen Unterarm, Uhr und Hand. Alles davon folgt den Messdaten: Das Handgelenk kommt aus der Bahn, die Richtung aus der Attitude der Uhr. Der Unterarm ist 27 cm lang (Durchschnittswert, `ArmModel` in `SwingReconstructor.swift`). Die Hand ist ein starrer Block in Verlängerung des Unterarms; Beugen und Strecken des Handgelenks misst die Uhr nicht, daher knickt die Hand nie ab. Ein Daumen macht die Drehung eindeutig lesbar; er sitzt bei Krone zur Hand auf der 12-Uhr-Seite der Uhr [Wahrscheinlich, am Gerät prüfen].
 
 ## Architektur
 
@@ -61,16 +56,16 @@ Am Zeit-Marker hängt ein Arm aus Schulter, Oberarm, Ellbogen, Unterarm, Uhr und
 
 `python3 Tools/verify_reconstruction.py` mit dem Demo-Schwung (60°-Ebene):
 
-Der Demo-Schwung ist ein gestreckter Arm (Schulter im Kreismittelpunkt, r = 58 cm) mit bekannter Unterarmrotation (Top +69° Supination, Finish −74° Pronation, linker Arm).
+Der Demo-Schwung ist ein gestreckter Arm (Kreismittelpunkt = Schulter, r = 58 cm) mit bekannter Unterarmrotation (Top +69° Supination, Finish −74° Pronation, linker Arm).
 
-| Szenario | Bahn | Rotation | Ellbogen | Oberarm-Spanne |
-|---|---|---|---|---|
-| 200 Hz, ideal | 0,2 cm | 0,6° | 0,2 cm | 31–31 cm |
-| 100 Hz, ideal | 0,7 cm | 2,5° | 0,7 cm | 30–31 cm |
-| 200 Hz, Rauschen 0,02 g | 1,4 cm | 0,6° | 1,4 cm | 31–32 cm |
-| 1° Attitude-Fehler im Abschwung | 2,8 cm | 0,6° | 2,8 cm | 28–33 cm |
-| 2° Attitude-Fehler im Abschwung | 5,6 cm | 0,6° | 5,6 cm | 25–36 cm |
-| 5° Attitude-Fehler im Abschwung | 13,7 cm | 0,6° | 13,7 cm | 17–43 cm |
+| Szenario | Bahn | Rotation | Ellbogen-Ende des Unterarms |
+|---|---|---|---|
+| 200 Hz, ideal | 0,2 cm | 0,6° | 0,2 cm |
+| 100 Hz, ideal | 0,7 cm | 2,5° | 0,7 cm |
+| 200 Hz, Rauschen 0,02 g | 1,4 cm | 0,6° | 1,4 cm |
+| 1° Attitude-Fehler im Abschwung | 2,8 cm | 0,6° | 2,8 cm |
+| 2° Attitude-Fehler im Abschwung | 5,6 cm | 0,6° | 5,6 cm |
+| 5° Attitude-Fehler im Abschwung | 13,7 cm | 0,6° | 13,7 cm |
 
 Ein konstanter Beschleunigungs-Bias wird von der Drift-Korrektur vollständig entfernt. Gyro-Bias ist im Modell nicht enthalten; bei typischen Werten unter 1 °/s liegt die Rotationsdrift über 2–3 s Schwungdauer im einstelligen Gradbereich (Schätzung).
 

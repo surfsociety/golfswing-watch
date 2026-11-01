@@ -18,10 +18,9 @@ struct SwingPoint {
     var elbow: SIMD3<Double>
 }
 
-/// Stilisierter Arm. Längen sind Durchschnittswerte für Erwachsene, keine Messung.
+/// Stilisierter Unterarm. Die Länge ist ein Durchschnittswert für Erwachsene, keine Messung.
 enum ArmModel {
     static let forearmLength = 0.27   // Handgelenk → Ellbogen, m
-    static let upperArmLength = 0.31  // Ellbogen → Schulter, m
 }
 
 struct ReconstructedSwing {
@@ -36,16 +35,6 @@ struct ReconstructedSwing {
     /// Geräteachse, die zur Hand zeigt (±X), abhängig von Handgelenk und Kronenseite
     var distalAxis: SIMD3<Double>
     var wrist: Side
-    /// Geschätzte Schulter, fest im Raum: beim Ansprechen in Verlängerung des gestreckten Unterarms.
-    /// Annahme: Die Schulter bewegt sich während des Schwungs nicht.
-    var shoulder: SIMD3<Double>
-
-    /// Kürzeste und längste Oberarmlänge über den Schwung. Weicht sie stark von
-    /// ArmModel.upperArmLength ab, hat sich die echte Schulter bewegt oder die Bahn driftet.
-    var upperArmLengthRange: ClosedRange<Double> {
-        let lengths = points.map { simd_length($0.elbow - shoulder) }
-        return (lengths.min() ?? 0)...(lengths.max() ?? 0)
-    }
 }
 
 /// Rekonstruiert die Handgelenk-Bahn aus Attitude + userAcceleration.
@@ -132,13 +121,11 @@ enum SwingReconstructor {
             roll[i] = roll[i - 1] + 0.5 * (r0 + r1) * dt
         }
 
-        // 5. Stilisierter Arm. Der Unterarm ist gemessen (Position + Attitude), der Oberarm geschätzt.
+        // 5. Stilisierter Unterarm aus Position + Attitude.
         let elbows = w.indices.map { i -> SIMD3<Double> in
             let q = simd_quatd(ix: w[i].qx, iy: w[i].qy, iz: w[i].qz, r: w[i].qw)
             return p[i] - ArmModel.forearmLength * q.act(distal)
         }
-        let q0 = simd_quatd(ix: w[0].qx, iy: w[0].qy, iz: w[0].qz, r: w[0].qw)
-        let shoulder = elbows[0] - ArmModel.upperArmLength * q0.act(distal)
 
         let points = w.indices.map { i in
             SwingPoint(t: w[i].t - t0,
@@ -156,8 +143,7 @@ enum SwingReconstructor {
             peakTime: times[peak] - t0,
             restDetectedAtBothEnds: restBefore && restAfter,
             distalAxis: distal,
-            wrist: sides.wrist,
-            shoulder: shoulder)
+            wrist: sides.wrist)
     }
 
     /// Läuft vom Peak weg, bis |ω| für `hold` Sekunden unter `threshold` liegt.

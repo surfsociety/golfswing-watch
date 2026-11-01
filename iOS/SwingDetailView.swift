@@ -23,10 +23,6 @@ struct SwingDetailView: View {
                               systemImage: "exclamationmark.triangle")
                             .font(.caption).foregroundStyle(.orange)
                     }
-                    let upper = swing.upperArmLengthRange
-                    Text(String(format: "Arm stilisiert: Unterarm gemessen, Schulter fest geschätzt. Oberarm %.0f–%.0f cm (Modell %.0f cm).",
-                                upper.lowerBound * 100, upper.upperBound * 100, ArmModel.upperArmLength * 100))
-                        .font(.caption2).foregroundStyle(.secondary)
                     HStack {
                         stat("Handgelenk max.", String(format: "%.0f km/h", swing.peakWristSpeed * 3.6))
                         stat("Jetzt", String(format: "%.0f km/h", current.wristSpeed * 3.6))
