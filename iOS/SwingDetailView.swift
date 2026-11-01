@@ -89,7 +89,7 @@ struct SwingDetailView: View {
 
     private func exportURL() -> URL? {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("swing-\(recording.date.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "-")).json")
+            .appendingPathComponent("swing-\(recording.id.uuidString).json")
         guard let data = try? JSONEncoder().encode(recording), (try? data.write(to: url)) != nil else { return nil }
         return url
     }
