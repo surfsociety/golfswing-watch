@@ -6,7 +6,8 @@ Integration der Drehrate um die Unterarmachse). Aufruf: python3 Tools/verify_rec
 import numpy as np
 
 G = 9.80665
-R = 0.7
+FOREARM, UPPER = 0.27, 0.31  # ArmModel in SwingReconstructor.swift
+R = FOREARM + UPPER
 TILT = np.radians(60)
 U = np.array([1.0, 0, 0])
 UP = np.array([0, np.cos(TILT), np.sin(TILT)])
@@ -76,17 +77,24 @@ def reconstruct(t, q, a, w, distal=np.array([1.0, 0, 0]), sup_sign=-1.0):
     v -= np.outer((T - T[0])/(T[-1] - T[0]), v[-1])
     for i in range(1, len(T)):
         p[i] = p[i-1] + 0.5*(v[i] + v[i-1])*(T[i] - T[i-1])
-    return T, p, v, np.degrees(rl*sup_sign), rb and ra
+    elbows = np.array([p[k] - FOREARM*qact(q[s+k], distal) for k in range(len(T))])
+    shoulder = elbows[0] - UPPER*qact(q[s], distal)
+    return T, p, v, np.degrees(rl*sup_sign), rb and ra, elbows, shoulder
 
 def report(label, rate, **kw):
     t, q, a, w = make(rate, **kw)
-    T, p, v, rot, rest_ok = reconstruct(t, q, a, w)
+    T, p, v, rot, rest_ok, elbows, shoulder = reconstruct(t, q, a, w)
     truth = np.array([pos(x) for x in T]); truth -= truth[0]
+    center = R*UP  # wahre Schulter relativ zur Ansprechposition
+    elbow_truth = center + (truth - center)*(UPPER/R)
+    upper_len = np.linalg.norm(elbows - shoulder, axis=1)
     rot_true = np.array([-np.degrees(roll(x) - roll(T[0])) for x in T])  # linker Arm: +X-Rollen = Pronation
     vt = np.array([np.linalg.norm((pos(x + 1e-4) - pos(x - 1e-4))/2e-4) for x in T])
     print(f"{label:<38} Bahn max {np.linalg.norm(p - truth, axis=1).max()*100:5.1f} cm | "
           f"Speed {np.linalg.norm(v, axis=1).max()*3.6:5.1f}/{vt.max()*3.6:5.1f} km/h | "
-          f"Rotation max Fehler {np.abs(rot - rot_true).max():4.1f}° (Top {rot_true.max():+.0f}°, Finish {rot_true[-1]:+.0f}°) | Ruhe {rest_ok}")
+          f"Rotation max Fehler {np.abs(rot - rot_true).max():4.1f}° (Top {rot_true.max():+.0f}°, Finish {rot_true[-1]:+.0f}°) | "
+          f"Ellbogen {np.linalg.norm(elbows - elbow_truth, axis=1).max()*100:4.1f} cm, Schulter {np.linalg.norm(shoulder - center)*100:.1f} cm, "
+          f"Oberarm {upper_len.min()*100:.0f}–{upper_len.max()*100:.0f} cm | Ruhe {rest_ok}")
 
 report("200 Hz ideal", 200)
 report("100 Hz ideal", 100)

@@ -4,8 +4,9 @@ import simd
 
 /// 3D-Darstellung: Achsenkreuz (X rot, Y grün, Z/vertikal blau, je 1 m), Gitter auf Ansprechhöhe,
 /// Bahn als Band, dessen Fläche der Uhrenoberseite folgt (die Verdrehung des Bandes zeigt die
-/// Unterarmrotation), eingefärbt nach Handgelenk-Geschwindigkeit. Der Marker ist eine
-/// ausgerichtete Uhr (Display orange) mit Stab Richtung Ellbogen.
+/// Unterarmrotation), eingefärbt nach Handgelenk-Geschwindigkeit. Am Zeit-Marker hängt ein
+/// stilisierter Arm: Schulter (fest, geschätzt), Oberarm, Ellbogen, Unterarm, ausgerichtete Uhr
+/// (Display orange) und Hand.
 struct SwingSceneView: UIViewRepresentable {
     let swing: ReconstructedSwing
     let progress: Double
@@ -33,7 +34,13 @@ struct SwingSceneView: UIViewRepresentable {
     final class Coordinator {
         private var positions: [SCNVector3] = []
         private var orientations: [simd_quatf] = []
+        private var elbows: [SIMD3<Float>] = []
+        private var shoulder = SIMD3<Float>(0, 0, 0)
         private let marker = SCNNode()
+        private let upperArm = Coordinator.limb(radius: 0.022)
+        private let forearm = Coordinator.limb(radius: 0.018)
+        private let shoulderJoint = Coordinator.joint(radius: 0.035)
+        private let elbowJoint = Coordinator.joint(radius: 0.026)
         private var builtFor: (count: Int, distal: Double) = (0, 0)
 
         /// Referenzsystem der Watch: Z vertikal. SceneKit: Y oben. (x, y, z) → (x, z, −y),
@@ -42,6 +49,10 @@ struct SwingSceneView: UIViewRepresentable {
 
         private func toScene(_ p: SIMD3<Double>) -> SCNVector3 {
             SCNVector3(Float(p.x), Float(p.z), Float(-p.y))
+        }
+
+        private func toSceneSIMD(_ p: SIMD3<Double>) -> SIMD3<Float> {
+            SIMD3(Float(p.x), Float(p.z), Float(-p.y))
         }
 
         func needsRebuild(for swing: ReconstructedSwing) -> Bool {
@@ -53,6 +64,8 @@ struct SwingSceneView: UIViewRepresentable {
             builtFor = (swing.points.count, swing.distalAxis.x)
             positions = swing.points.map { toScene($0.position) }
             orientations = swing.points.map { simd_quatf(vector: SIMD4<Float>((sceneFromReference * $0.attitude).vector)) }
+            elbows = swing.points.map { toSceneSIMD($0.elbow) }
+            shoulder = toSceneSIMD(swing.shoulder)
 
             scene.rootNode.addChildNode(axes())
             scene.rootNode.addChildNode(grid())
@@ -63,6 +76,10 @@ struct SwingSceneView: UIViewRepresentable {
 
             buildMarker(distalSign: Float(swing.distalAxis.x))
             scene.rootNode.addChildNode(marker)
+            for node in [upperArm, forearm, shoulderJoint, elbowJoint] {
+                scene.rootNode.addChildNode(node)
+            }
+            shoulderJoint.simdPosition = shoulder
 
             let camera = SCNNode()
             camera.camera = SCNCamera()
@@ -78,6 +95,34 @@ struct SwingSceneView: UIViewRepresentable {
             let i = Int((Double(positions.count - 1) * progress).rounded())
             marker.position = positions[i]
             marker.simdOrientation = orientations[i]
+            let wrist = SIMD3<Float>(positions[i].x, positions[i].y, positions[i].z)
+            elbowJoint.simdPosition = elbows[i]
+            Coordinator.place(upperArm, from: shoulder, to: elbows[i])
+            Coordinator.place(forearm, from: elbows[i], to: wrist)
+        }
+
+        /// Zylinder der Höhe 1 entlang Y; wird per Skalierung auf die Segmentlänge gebracht.
+        private static func limb(radius: CGFloat) -> SCNNode {
+            let cyl = SCNCylinder(radius: radius, height: 1)
+            cyl.firstMaterial?.diffuse.contents = UIColor.systemGray2
+            return SCNNode(geometry: cyl)
+        }
+
+        private static func joint(radius: CGFloat) -> SCNNode {
+            let sphere = SCNSphere(radius: radius)
+            sphere.firstMaterial?.diffuse.contents = UIColor.systemGray
+            return SCNNode(geometry: sphere)
+        }
+
+        private static func place(_ node: SCNNode, from a: SIMD3<Float>, to b: SIMD3<Float>) {
+            var d = b - a
+            let length = simd_length(d)
+            guard length > 1e-4 else { return }
+            node.simdPosition = (a + b) / 2
+            // Zylinder ist symmetrisch: Richtung nach oben drehen, um den 180°-Sonderfall zu vermeiden
+            if d.y < 0 { d = -d }
+            node.simdOrientation = simd_quatf(from: SIMD3(0, 1, 0), to: d / length)
+            node.simdScale = SIMD3(1, length, 1)
         }
 
         /// Uhr im Gerätesystem: X Richtung Krone, Y Richtung 12 Uhr, Z aus dem Display.
@@ -90,12 +135,12 @@ struct SwingSceneView: UIViewRepresentable {
             box.materials = [face, body, body, body, body, body]
             marker.addChildNode(SCNNode(geometry: box))
 
-            let forearm = SCNCylinder(radius: 0.012, height: 0.3)
-            forearm.firstMaterial?.diffuse.contents = UIColor.secondaryLabel
-            let arm = SCNNode(geometry: forearm)
-            arm.eulerAngles = SCNVector3(0, 0, Float.pi / 2)        // Zylinder entlang X legen
-            arm.position = SCNVector3(-distalSign * 0.17, 0, -0.015) // Richtung Ellbogen, unter der Uhr
-            marker.addChildNode(arm)
+            // Stilisierte Hand: Kugel jenseits des Handgelenks entlang der Unterarmachse
+            let fist = SCNSphere(radius: 0.035)
+            fist.firstMaterial?.diffuse.contents = UIColor.systemGray
+            let hand = SCNNode(geometry: fist)
+            hand.position = SCNVector3(distalSign * 0.08, 0, -0.02)
+            marker.addChildNode(hand)
         }
 
         /// Band entlang der Bahn. Breitenrichtung = Geräte-Y (um das Handgelenk herum),
